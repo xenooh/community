@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.github.pagehelper.PageInfo;
+
 import net.musecom.community.dto.BoardAdminDto;
 import net.musecom.community.dto.BoardCategory;
 import net.musecom.community.dto.BoardDto;
@@ -47,9 +49,14 @@ public class CommunityController {
 	@GetMapping("")
 	public String boardList(
 			@RequestParam(value="bid", defaultValue = "1") int bid, 
+			@RequestParam(value="page", defaultValue="1") int page,
+			@RequestParam(value="size", defaultValue="10") int size,
+			@RequestParam(value="option", required=false) String option,
+			@RequestParam(value="search", required=false) String search,
 			Model model, 
 			HttpServletRequest request) {
 		
+	
 		//쓰레기 파일 삭제를 위한 경로 셋팅
 		String uploadPath = request.getSession().getServletContext().getRealPath("/res/upload/"+bid);
         fileService.trashFile(uploadPath);
@@ -61,10 +68,10 @@ public class CommunityController {
         	Users user = userMapper.getUserForUserid(auth.getName());
         	model.addAttribute("user", user);
         }
-		
+
 		BoardAdminDto adto = baService.getSelectById(bid);
-		List<BoardDto> dtos = bService.getAllList(bid);
-		
+	    PageInfo<BoardDto> pageInfoDtos = bService.getAllList(bid, page, size, option, search);
+
 		String skin = adto.getSkin();
 		
 		String skinPath = "/WEB-INF/views/board/"+skin+"/list.jsp";
@@ -80,7 +87,7 @@ public class CommunityController {
 		
 		model.addAttribute("skinPath", skinPath );
 		model.addAttribute("badmin", adto);   
-		model.addAttribute("lists", dtos );
+		model.addAttribute("pageInfo", pageInfoDtos );
 
 		return "board.list";
 	}
@@ -159,6 +166,9 @@ public class CommunityController {
 		   @RequestParam(value="sec", defaultValue="0") byte sec,
 		   @RequestParam("category") String category,
 		   @RequestParam("tempBid") long tempBid,
+		   @RequestParam(value="ref", defaultValue="0") long ref,
+		   @RequestParam(value="step", defaultValue="0") int step,
+		   @RequestParam(value="depth", defaultValue="0") int depth,
 	       RedirectAttributes redirectAttributes) {
 		
 		   BoardDto dto = new BoardDto();
@@ -170,10 +180,27 @@ public class CommunityController {
 		   dto.setContent(content);
 		   dto.setSec(sec);
 		   dto.setCategory(category);
-		   
+		
+		   if(ref == 0) {
+			   //원글 - ref 업데이트
+			   dto.setRef(0);
+			   dto.setStep(0);
+			   dto.setDepth(0);
+		   }else {
+			   //답변글 - 기존 답글중 step이 같거나 큰 글들을 하나씩 뒤로 밀어내기
+			   bService.updateStep(ref, step + 1);
+			   dto.setRef(ref);
+			   dto.setStep(step + 1);
+			   dto.setDepth(depth + 1);
+		   }
 		
 		   int res = bService.insertBoard(dto);
+		   //원글이면 ref 값을 id로 업데이트
 		   long bid = dto.getId();
+		   
+		   if(res == 1 && ref == 0) {
+		      bService.updateRef(bid);
+		   }
 		   
 		   List<FileDto> files = fileService.selectFileList(tempBid);
 		   for(FileDto f : files) {
